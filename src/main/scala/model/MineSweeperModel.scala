@@ -2,9 +2,10 @@ package model
 
 import java.awt.Point
 import java.util
-import java.util.Random
 
+import scala.collection.immutable.Queue
 import scala.jdk.CollectionConverters.IterableHasAsJava
+import scala.util.Random
 
 
 class MineSweeperModel {
@@ -68,92 +69,79 @@ class MineSweeperModel {
       cell.setRightClickStatus(RightClickStatus.BLANK)
     }
 
-  private def AddBombs() = {
-    val random = new Random
-    var numOfPlacedBombs = 0
-    var cell: Cell = null
-    while (numOfPlacedBombs < numberOfBombs) {
-      do {
-        cell = board(random.nextInt(rowCount))(random.nextInt(colCount))
-      } while (cell.getCellStatus == CellStatus.BOMB)
+  private def AddBombs() =
+    Random.shuffle(board.flatten.toSeq)
+      .filterNot(_.getCellStatus == CellStatus.BOMB)
+      .take(numberOfBombs)
+      .foreach { cell =>
+        cell.setCellStatus(CellStatus.BOMB)
+        listOfBombs :+= cell
+      }
 
-      cell.setCellStatus(CellStatus.BOMB)
-      numOfPlacedBombs += 1
-      listOfBombs :+= cell
+  private def forEachNeighbor(cell: Cell)(handler: Cell => Unit) = {
+    val r = cell.getLocation.y
+    val c = cell.getLocation.x
+
+    for (i <- dr8.indices) {
+      val row = r + dr8(i)
+      val col = c + dc8(i)
+
+      if (row >= 0 && col >= 0 && row < rowCount && col < colCount)
+        handler(board(row)(col))
     }
-
-    System.err.println(s"num of bombs: $numOfPlacedBombs")
   }
 
-  private def AddNumbers() = {
-    for (item <- listOfBombs) {
-      val r = item.getLocation.y
-      val c = item.getLocation.x
-      for (i <- dr8.indices) {
-        val row = r + dr8(i)
-        val col = c + dc8(i)
-        if (row >= 0 && col >= 0 && row < rowCount && col < colCount) {
-          val cell = board(row)(col)
-          if (cell.getCellStatus != CellStatus.BOMB) {
-            cell.setCellStatus(CellStatus.NUMBER)
-            cell.setNumber(cell.getNumber + 1)
-          }
+  private def AddNumbers() =
+    for (item <- listOfBombs)
+      forEachNeighbor(item) { cell =>
+        if (cell.getCellStatus != CellStatus.BOMB) {
+          cell.setCellStatus(CellStatus.NUMBER)
+          cell.setNumber(cell.getNumber + 1)
         }
       }
-    }
-  }
 
   def IsGameWon =
     numSpacesClicked + numberOfBombs == rowCount * colCount
 
   def LeftClick(location: Point): util.List[Cell] = {
-    val list: util.List[Cell] = new util.LinkedList[Cell]
-    var cell: Cell = null
-    cell = board(location.y)(location.x)
-    if (cell.getRightClickStatus == RightClickStatus.BLANK) {
-      if (cell.getCellStatus == CellStatus.BOMB)
-        list.add(cell)
-      else if (cell.getCellStatus == CellStatus.NUMBER) {
-        list.add(cell)
-        numSpacesClicked += list.size
-      } else {
-        val coloredSet: util.Set[Cell] = new util.HashSet[Cell]
-        val queue: util.Queue[Cell] = new util.LinkedList[Cell]
+    val list = new util.LinkedList[Cell]
+    val clickedCell = board(location.y)(location.x)
 
-        queue.add(cell)
-        coloredSet.add(cell)
+    if (clickedCell.getRightClickStatus == RightClickStatus.BLANK)
+      clickedCell.getCellStatus match {
+        case CellStatus.BOMB =>
+          list.add(clickedCell)
 
-        while (queue.size != 0) {
-          cell = queue.poll()
+        case CellStatus.NUMBER =>
+          list.add(clickedCell)
+          numSpacesClicked += list.size
 
-          if (cell.getRightClickStatus == RightClickStatus.BLANK) {
-            if (!numSpacesClickedSet.contains(cell)) {
-              list.add(cell)
-              numSpacesClickedSet += cell
-            }
+        case CellStatus.BLANK =>
+          var coloredSet = Set(clickedCell)
+          var queue = Queue(clickedCell)
 
-            if (cell.getCellStatus == CellStatus.BLANK) {
-              val r = cell.getLocation.y
-              val c = cell.getLocation.x
+          while (queue.nonEmpty) {
+            val (cell, others) = queue.dequeue
+            queue = others
 
-              for (i <- dr8.indices) {
-                val row = r + dr8(i)
-                val col = c + dc8(i)
+            if (cell.getRightClickStatus == RightClickStatus.BLANK) {
+              if (!numSpacesClickedSet.contains(cell)) {
+                list.add(cell)
+                numSpacesClickedSet += cell
+              }
 
-                if (row >= 0 && col >= 0 && row < rowCount && col < colCount) {
-                  cell = board(row)(col)
-                  if (!coloredSet.contains(cell)) {
-                    coloredSet.add(cell)
-                    queue.add(cell)
+              if (cell.getCellStatus == CellStatus.BLANK)
+                forEachNeighbor(cell) { neighbor =>
+                  if (!coloredSet.contains(neighbor)) {
+                    coloredSet += neighbor
+                    queue = queue.enqueue(neighbor)
                   }
                 }
-              }
             }
           }
-        }
-        numSpacesClicked += list.size
+
+          numSpacesClicked += list.size
       }
-    }
     list
   }
 
