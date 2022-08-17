@@ -1,3 +1,5 @@
 /out/
 /.idea/
 /zipper-minesweeper.iml
+/.bsp/
+target/
